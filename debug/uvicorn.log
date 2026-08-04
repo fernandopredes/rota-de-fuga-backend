@@ -1,0 +1,30 @@
+INFO:     Started server process [129625]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:53594 - "GET /wells HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53606 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50056 - "GET /wells HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50072 - "GET /wells HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50046 - "GET /map/layers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50088 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50078 - "GET /map/layers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47956 - "GET /wells HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47972 - "GET /wells HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47940 - "GET /map/layers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47982 - "GET /map/layers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45170 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39304 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41700 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60566 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60568 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38034 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46484 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46490 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44392 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44366 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49872 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38660 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54370 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43210 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58684 - "POST /analyze HTTP/1.1" 200 OK

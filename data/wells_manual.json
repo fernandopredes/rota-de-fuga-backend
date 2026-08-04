@@ -1,0 +1,6 @@
+[
+  {"id": "9-BUZ-43-RJS", "name": "9-BUZ-43-RJS", "E": null, "N": null, "lda": null,
+   "_nota": "poço-alvo do título — preencher E/N (SIRGAS2000 UTM 23S); lda pode ficar null (lido da grade)"},
+  {"id": "8-BUZ-92-RJS", "name": "8-BUZ-92-RJS", "E": null, "N": null, "lda": null,
+   "_nota": "poço-alvo do título — preencher E/N; lda pode ficar null"}
+]

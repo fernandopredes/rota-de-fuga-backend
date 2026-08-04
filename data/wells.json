@@ -1,0 +1,28 @@
+[
+ {
+  "id": "P-77",
+  "name": "P-77",
+  "E": 761977,
+  "N": 7272834,
+  "lda": 1980,
+  "source": "ocr"
+ },
+ {
+  "id": "9-BUZ-43-RJS",
+  "name": "9-BUZ-43-RJS",
+  "E": null,
+  "N": null,
+  "lda": null,
+  "_nota": "po\u00e7o-alvo do t\u00edtulo \u2014 preencher E/N (SIRGAS2000 UTM 23S); lda pode ficar null (lido da grade)",
+  "source": "manual"
+ },
+ {
+  "id": "8-BUZ-92-RJS",
+  "name": "8-BUZ-92-RJS",
+  "E": null,
+  "N": null,
+  "lda": null,
+  "_nota": "po\u00e7o-alvo do t\u00edtulo \u2014 preencher E/N; lda pode ficar null",
+  "source": "manual"
+ }
+]
