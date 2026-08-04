@@ -44,16 +44,138 @@ O sistema tem duas partes com papéis diferentes:
 - **A API (leve, instantânea)** — só lê esses arquivos prontos. Nunca toca
   no PDF.
 
-Para trocar de mapa, hoje é manual, no terminal:
+### Passo a passo
+
+Se o mapa novo é da mesma família (template QGIS da Petrobras, mesmas
+cores/legenda), o atalho é rodar tudo de uma vez e só conferir as imagens:
 
 ```bash
-MAP_PDF=/caminho/do/novo_mapa.pdf .venv/bin/python preprocess.py --stage all
-# conferir as imagens em debug/ (georef, profundidades, obstáculos...)
-# reiniciar a API para ela reler data/:
+export MAP_PDF=/caminho/do/novo_mapa.pdf
+.venv/bin/python preprocess.py --stage all
+```
+
+Se algo sair torto, rode estágio por estágio — cada um imprime diagnóstico e
+salva uma imagem em `debug/` pra conferir antes de seguir pro próximo:
+
+**0. Antes de começar** — anote as coordenadas UTM e a LDA de um poço que
+tenha profundidade anotada no mapa novo (como o P-77 aqui). Você vai precisar
+dele no passo 7 pra validar a grade interpolada.
+
+**1. Georreferenciamento**
+```bash
+.venv/bin/python preprocess.py --stage 1
+```
+Confira `debug/01_georef.png`: a grade desenhada por cima deve alinhar com as
+linhas pretas do mapa, com os valores UTM certos nas bordas.
+
+Se os rótulos de coordenada (ex: `747000E`) estiverem em outra posição/fonte
+nesse PDF, o OCR pode não achar nada — o comando falha com uma mensagem tipo:
+
+```
+Pontos insuficientes para georreferenciar (easting: 0/2+, northing: 0/2+).
+  xs: [65.18, 348.64, 632.11, ...]
+  ys: [281.1, 564.56, 848.03, ...]
+```
+
+Nesse caso, use o fallback manual: pegue 2+ valores de `xs:`/`ys:` (a
+detecção de linhas de grade é geometria pura, não depende de OCR — sempre
+funciona), abra `debug/overview.png` (ou renderize a faixa da borda em alta
+DPI) e leia por olho qual UTM cada linha representa. Depois rode de novo com
+`MANUAL_GEOREF`:
+
+```bash
+MANUAL_GEOREF='{"easting": {"65.18": 747000, "1765.96": 765000},
+                 "northing": {"281.1": 7287000, "1414.95": 7275000}}' \
+  .venv/bin/python preprocess.py --stage 1
+```
+
+As chaves são os valores de `xs`/`ys` (com tolerância de ~1pt — não precisa
+ser exato); os valores são o UTM correspondente. `MANUAL_GEOREF` também
+aceita um caminho de arquivo `.json` em vez de JSON inline. Quando definida,
+pula o OCR das bordas inteiramente e usa só os pontos manuais — o resto do
+pipeline (spacing, afim, validação) roda igual. Se o OCR funciona parcialmente
+mas você não confia nele, prefira o manual: ele sempre ganha quando a
+variável está definida.
+
+**2. Isóbatas**
+```bash
+.venv/bin/python preprocess.py --stage 2
+```
+`debug/02_isobaths.png` deve parecer um mapa de contorno normal (curvas
+fechadas, sem fiapos soltos). Se as isóbatas desse mapa forem de outra cor,
+ajuste a constante `ISOBATH_COLOR` no topo de `preprocess.py` (hoje fixa no
+azul `(0.12, 0.47, 0.71)`).
+
+**3. Amostras de profundidade (rótulos vermelhos de equipamento)**
+```bash
+.venv/bin/python preprocess.py --stage 3
+```
+`debug/03a_samples.png` mostra pontos coloridos por profundidade. Se vier
+vazio, sem problema — é só um reforço pra propagação; o mapa pode não ter
+esse tipo de rótulo com N/E/LDA.
+
+**4. OCR dos rótulos de isóbata**
+```bash
+.venv/bin/python preprocess.py --stage 4
+```
+Olhe a razão impressa no terminal (`N/M parsed`). Acima de ~70% costuma ser
+suficiente pra propagação fechar o resto sozinha.
+
+**5. Atribuir profundidade a cada isóbata**
+```bash
+.venv/bin/python preprocess.py --stage 5
+```
+`debug/03c_depths.png`: contornos em degradê contínuo do raso ao fundo.
+**Linhas vermelhas = não resolvidas.** Se aparecer muita coisa vermelha, o
+problema está no estágio 4 (poucos rótulos lidos).
+
+**6. Grade contínua + validação**
+```bash
+.venv/bin/python preprocess.py --stage 6
+```
+O terminal imprime uma checagem tipo `P-77 check: grid=... delta=...` — hoje
+hardcoded pro poço P-77 deste mapa. **Para um mapa novo, edite essa
+validação dentro de `stage4_grid()`** trocando pelas coordenadas e LDA do
+poço-referência que você anotou no passo 0. Delta de poucos metros = grade
+confiável; delta grande = revisar os estágios anteriores antes de seguir.
+
+**7. Obstáculos**
+```bash
+.venv/bin/python preprocess.py --stage 7
+```
+O terminal lista a contagem por categoria; `debug/05_obstacles.png` mostra
+tudo colorido por tipo. Cores de traço que não estão em
+`OBSTACLE_CATEGORIES` (topo de `preprocess.py`) ficam de fora **silenciosamente**
+— se sobrar muita coisa sem categoria, use o mesmo truque que usamos aqui
+(casar cada swatch de cor da legenda com o texto real ao lado dele via
+`page.get_text('words')`) pra descobrir os códigos novos e adicioná-los.
+
+**8. Poços**
+```bash
+.venv/bin/python preprocess.py --stage 8
+```
+Confira `data/wells.json`. Poços sem anotação OCR no mapa (tipicamente os
+poços-alvo do título, tipo 9-BUZ-43-RJS/8-BUZ-92-RJS aqui) precisam entrar
+manualmente em `data/wells_manual.json` (E/N em UTM SIRGAS2000 23S,
+EPSG:31983) — depois rode o estágio 8 de novo.
+
+**9. Subir a API**
+```bash
+lsof -ti:8000 -sTCP:LISTEN | xargs -r kill   # se já tiver uma rodando
 .venv/bin/uvicorn main:app --port 8000
 ```
 
-Três ressalvas:
+**10. Testar**
+```bash
+curl http://localhost:8000/wells
+curl -X POST http://localhost:8000/analyze \
+  -H 'Content-Type: application/json' -d '{"well_id": "<id-do-poco>"}'
+```
+E no front, abrir o módulo "Rota de Fuga" e clicar no mapa — as camadas
+(`/map/layers`) devem carregar e o clique deve gerar um resultado coerente
+com o mapa original.
+
+### Ressalvas
 
 1. **Sobrescreve o mapa anterior.** `data/` guarda um mapa por vez — não há
    ainda "vários mapas carregados" com o front escolhendo entre eles (o

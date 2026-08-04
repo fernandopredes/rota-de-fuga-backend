@@ -28,3 +28,14 @@ INFO:     127.0.0.1:38660 - "POST /analyze HTTP/1.1" 200 OK
 INFO:     127.0.0.1:54370 - "POST /analyze HTTP/1.1" 200 OK
 INFO:     127.0.0.1:43210 - "POST /analyze HTTP/1.1" 200 OK
 INFO:     127.0.0.1:58684 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35392 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53248 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53260 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52396 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33056 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33068 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43330 - "GET /wells HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43360 - "GET /wells HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43344 - "GET /map/layers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43362 - "GET /map/layers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43374 - "POST /analyze HTTP/1.1" 200 OK

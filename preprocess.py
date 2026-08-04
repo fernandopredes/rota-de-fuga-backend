@@ -96,6 +96,41 @@ def ocr_digits(img_gray: np.ndarray) -> list[dict]:
 
 # ── stage 1: georeferencing ─────────────────────────────────────────────────
 
+def _load_manual_georef() -> dict | None:
+    """MANUAL_GEOREF env var: inline JSON or a path to a JSON file, shaped
+    like {"easting": {"<x da linha>": <valor UTM E>, ...},
+          "northing": {"<y da linha>": <valor UTM N>, ...}}.
+    Keys are page coordinates — copy them from the "xs:"/"ys:" line stage 1
+    prints, then read the matching UTM value off the map by eye (open
+    debug/overview.png or render the border strip at high DPI). Needs ≥2
+    points per axis; a 3rd is a nice cross-check."""
+    raw = os.environ.get('MANUAL_GEOREF')
+    if not raw:
+        return None
+    if os.path.exists(raw):
+        with open(raw) as f:
+            raw = f.read()
+    data = json.loads(raw)
+    return {
+        'easting': {float(k): int(v) for k, v in data['easting'].items()},
+        'northing': {float(k): int(v) for k, v in data['northing'].items()},
+    }
+
+
+def _snap_to_grid(labels: dict[float, int], coords: list[float], tol: float = 1.0) -> dict[float, int]:
+    """Snap possibly-imprecise manual keys onto the actual grid-line
+    coordinates so consensus_axis's exact-match lookup doesn't KeyError."""
+    out = {}
+    for k, v in labels.items():
+        nearest = min(coords, key=lambda c: abs(c - k))
+        if abs(nearest - k) <= tol:
+            out[nearest] = v
+        else:
+            print(f'  aviso: MANUAL_GEOREF tem {k} sem linha de grade próxima '
+                  f'(mais perto: {nearest}, dist {abs(nearest - k):.2f} pts) — ignorado')
+    return out
+
+
 def stage1_georef():
     page = open_page()
     xs, ys = find_grid_lines(page)
@@ -109,39 +144,48 @@ def stage1_georef():
     assert dxs.std() < 0.5 and dys.std() < 0.5, 'grid spacing not constant'
     spacing_pts = float(np.mean(np.concatenate([dxs, dys])))
 
-    # OCR the bottom strip (easting labels) and right strip (northing labels)
-    dpi = 300
-    zoom = dpi / 72
+    manual = _load_manual_georef()
     easting_by_x: dict[float, int] = {}
     northing_by_y: dict[float, int] = {}
 
-    # bottom strip: easting labels sit right below the frame corner (~y 1630-1672)
-    clip = fitz.Rect(0, 1620, 1990, 1675)
-    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, colorspace=fitz.csGRAY)
-    img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
-    for w in ocr_digits(img):
-        val = int(re.sub(r'[EN]', '', w['text']))
-        page_x = clip.x0 + w['cx'] / zoom
-        # match to nearest grid vertical
-        nearest = min(xs, key=lambda gx: abs(gx - page_x))
-        if abs(nearest - page_x) < spacing_pts / 2:
-            easting_by_x[nearest] = val
-    print('easting labels:', easting_by_x)
+    if manual:
+        print('MANUAL_GEOREF definido — pulando OCR das bordas')
+        easting_by_x = _snap_to_grid(manual['easting'], xs)
+        northing_by_y = _snap_to_grid(manual['northing'], ys)
+        print('easting labels (manual):', easting_by_x)
+        print('northing labels (manual):', northing_by_y)
+    else:
+        # OCR the bottom strip (easting labels) and right strip (northing labels)
+        dpi = 300
+        zoom = dpi / 72
 
-    # right strip: northing labels are plain horizontal text just inside the
-    # right frame edge (white-halo'd over map content), e.g. "7287000N".
-    clip = fitz.Rect(1895, 0, 1984, 1684)
-    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, colorspace=fitz.csGRAY)
-    img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
-    for w in ocr_digits(img):
-        val = int(re.sub(r'[EN]', '', w['text']))
-        page_y = clip.y0 + w['cy'] / zoom
-        nearest = min(ys, key=lambda gy: abs(gy - page_y))
-        if abs(nearest - page_y) < spacing_pts / 2:
-            northing_by_y[nearest] = val
-    print('northing labels:', northing_by_y)
+        # bottom strip: easting labels sit right below the frame corner (~y 1630-1672)
+        clip = fitz.Rect(0, 1620, 1990, 1675)
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, colorspace=fitz.csGRAY)
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
+        for w in ocr_digits(img):
+            val = int(re.sub(r'[EN]', '', w['text']))
+            page_x = clip.x0 + w['cx'] / zoom
+            # match to nearest grid vertical
+            nearest = min(xs, key=lambda gx: abs(gx - page_x))
+            if abs(nearest - page_x) < spacing_pts / 2:
+                easting_by_x[nearest] = val
+        print('easting labels:', easting_by_x)
 
-    # Cross-check OCR'd labels against constant grid spacing; keep the
+        # right strip: northing labels are plain horizontal text just inside the
+        # right frame edge (white-halo'd over map content), e.g. "7287000N".
+        clip = fitz.Rect(1895, 0, 1984, 1684)
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, colorspace=fitz.csGRAY)
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
+        for w in ocr_digits(img):
+            val = int(re.sub(r'[EN]', '', w['text']))
+            page_y = clip.y0 + w['cy'] / zoom
+            nearest = min(ys, key=lambda gy: abs(gy - page_y))
+            if abs(nearest - page_y) < spacing_pts / 2:
+                northing_by_y[nearest] = val
+        print('northing labels:', northing_by_y)
+
+    # Cross-check OCR'd (or manual) labels against constant grid spacing; keep the
     # consensus and infer the rest. Spacing in meters from the map scale.
     def consensus_axis(labels: dict[float, int], coords: list[float], sign: int):
         """Fit value = v0 + sign * k * index given OCR anchors; return values
@@ -172,7 +216,17 @@ def stage1_georef():
     north = consensus_axis(northing_by_y, ys, -1)
     if east is None or north is None:
         raise SystemExit(
-            'OCR não achou rótulos suficientes. Rode com MANUAL_GEOREF (ver README).')
+            'Pontos insuficientes para georreferenciar '
+            f'(easting: {len(easting_by_x)}/2+, northing: {len(northing_by_y)}/2+).\n\n'
+            'Defina a variável MANUAL_GEOREF com JSON inline ou caminho de arquivo:\n'
+            '  MANUAL_GEOREF=\'{"easting": {"<x>": <E utm>, "<x>": <E utm>}, '
+            '"northing": {"<y>": <N utm>, "<y>": <N utm>}}\' '
+            'python preprocess.py --stage 1\n\n'
+            f'Use como chave um dos valores impressos acima em "xs:" (para easting) '
+            f'ou "ys:" (para northing), e leia o UTM correspondente direto no PDF — '
+            f'abra debug/overview.png ou renderize a faixa da borda em alta DPI e leia '
+            f'o rótulo por cima do olho. Pelo menos 2 pontos por eixo.\n'
+            f'  xs: {xs}\n  ys: {ys}')
     east_vals, east_spacing = east
     north_vals, north_spacing = north
     print('easting per line: ', dict(zip(xs, east_vals)))
