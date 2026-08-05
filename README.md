@@ -34,6 +34,65 @@ uv pip install --python .venv/bin/python pymupdf numpy scipy shapely pyproj \
 Cada estágio salva uma imagem de inspeção em `debug/`. **Confira as imagens
 antes de confiar nos números.**
 
+## Infraestrutura (dois droplets + upload pelo front)
+
+O preprocess não roda nem na máquina de dev (sem capacidade local) nem no
+droplet de produção do Taka-Storm — por isso existem **dois droplets**, com
+papéis diferentes, e o admin pode disparar tudo pelo front sem precisar de SSH
+no dia a dia:
+
+- **Droplet pesado** (processamento) — `67.205.156.210`, Ubuntu 24.04, 1 vCPU,
+  1GB RAM (+1GB swapfile), 24GB disco. Roda `jobs_api.py`
+  (`rota-fuga-jobs.service`, porta 8001) — recebe o PDF, dispara
+  `preprocess.py --stage all` em background e, quando termina, publica o
+  resultado sozinho (ver abaixo). **Sempre ligado** (decisão consciente:
+  simplicidade > economizar os ~$6-12/mês de mantê-lo parado). Toolchain
+  pesado (PyMuPDF, tesserocr, scikit-image, matplotlib) — tudo via wheel
+  pronto, nada precisou compilar, mesmo o `tesserocr`. `tessdata/eng.traineddata`
+  também existe via pacote apt, mas o `preprocess.py` usa o `tessdata/` local
+  do projeto (`TESSDATA = BASE + 'tessdata'`). zsh + oh-my-zsh por
+  conveniência. Chave SSH própria (`~/.ssh/id_ed25519`, gerada nesse droplet)
+  cadastrada como **deploy key** deste repo no GitHub, e também autorizada
+  (`authorized_keys`) no droplet de produção — é essa segunda ligação que
+  deixa o passo de publicação automático.
+- **Droplet de produção** (137.184.18.204) — roda só a **API leve**
+  (`main.py`+`analysis.py`, sem nenhuma lib de OCR/PDF) como
+  `rota-fuga-api.service` em `127.0.0.1:8000`, atrás do nginx em
+  `https://takatsugu-hub.com/fuga`. Venv com só `fastapi uvicorn numpy scipy
+  shapely pyproj scikit-image` — nada de PyMuPDF/tesserocr/matplotlib lá (a
+  máquina tem só 1 vCPU/~2GB RAM e o disco vive em ~90%, então o toolchain
+  pesado nunca é instalado ali).
+
+**Fluxo automático (upload pelo front do Taka-Storm, admin only):**
+1. Admin sobe o PDF em `RotaFuga.tsx` → `POST /admin/rotafuga/maps` no
+   `server.js` (é o portão de autenticação de verdade) → repassado pro
+   droplet pesado (`POST /jobs` em `jobs_api.py`) com uma chave interna
+   compartilhada (`ROTAFUGA_PROCESS_KEY`, nunca chega ao cliente).
+2. `jobs_api.py` roda `preprocess.py --stage all` num subprocess em
+   background (só um job por vez) e o front faz polling do status
+   (`GET /admin/rotafuga/maps/:jobId`).
+3. Ao terminar com sucesso, `jobs_api.py` sozinho: `rsync` de `data/` pro
+   droplet de produção, depois `POST https://takatsugu-hub.com/fuga/reload`
+   (mesma chave interna) pra API leve recarregar o `EscapeAnalyzer` em
+   memória — sem restart manual de processo.
+
+**Fluxo manual (mesma coisa, via SSH, útil pra depurar um mapa novo estágio
+por estágio antes de confiar no upload direto):**
+```bash
+ssh root@67.205.156.210
+cd /root/rota-fuga-backend
+git pull                         # ou: rsync direto da máquina de dev
+                                  # (o repo local pode estar à frente do origin —
+                                  # nesse caso rsync é mais confiável que pull)
+MAP_PDF=/root/rota-fuga-backend/nome_do_mapa.pdf .venv/bin/python preprocess.py --stage all
+rsync -az data/ puppeteeruser@137.184.18.204:~/rota-fuga-backend/data/
+curl -X POST https://takatsugu-hub.com/fuga/reload -H "X-Internal-Key: $ROTAFUGA_PROCESS_KEY"
+```
+
+Nenhum dos dois droplets guarda estado que não esteja também no repo Git ou
+nos PDFs de origem — em tese o droplet pesado poderia voltar a ser
+descartável mais tarde, mas hoje é permanente por simplicidade.
+
 ## Carregando um mapa de restrição novo
 
 O sistema tem duas partes com papéis diferentes:
@@ -155,9 +214,12 @@ tudo colorido por tipo. Cores de traço que não estão em
 .venv/bin/python preprocess.py --stage 8
 ```
 Confira `data/wells.json`. Poços sem anotação OCR no mapa (tipicamente os
-poços-alvo do título, tipo 9-BUZ-43-RJS/8-BUZ-92-RJS aqui) precisam entrar
-manualmente em `data/wells_manual.json` (E/N em UTM SIRGAS2000 23S,
-EPSG:31983) — depois rode o estágio 8 de novo.
+poços-alvo do título, tipo 9-BUZ-43-RJS/8-BUZ-92-RJS aqui) ficam com
+`E`/`N` nulos — **não precisa mais editar `wells_manual.json` à mão**: depois
+que o mapa é publicado, esses poços aparecem em `GET /wells/incomplete` e o
+admin preenche lon/lat direto no painel "Poços sem coordenada" do front
+(`RotaFuga.tsx`), que salva via `POST /wells/override` sem reprocessar o PDF
+(ver seção **API** abaixo).
 
 **9. Subir a API**
 ```bash
@@ -191,29 +253,75 @@ com o mapa original.
    filtros até alguém generalizar esses números — idealmente extraindo tudo
    isso para um `map_config.json` por mapa (não implementado ainda).
 
-Não existe upload pelo site — carregar mapa é operação de quem administra o
-backend, não do usuário final do front.
+Upload pelo site existe e é admin-only (ver acima) — mas continua sem
+revisão humana das imagens de `debug/` antes de publicar (decisão
+consciente: o usuário sempre manda o PDF no formato/template certo, então
+pulamos essa etapa).
 
-## Validações do PDF atual (BUZ43_BUZ92_00)
+## Validações do PDF atual (BUZ70D_BUZ43_00)
 
-- Georef: 12 rótulos OCR consistentes, escala implícita 1:30.000 exata
-- P-77: grade interpolada = **1980.7 m** vs anotação do mapa **1980 m**
-- Resíduo mediano nas 26 amostras LDA (âncoras): **−2 m**
-- 100/127 rótulos de isóbata lidos; propagação fecha o resto sem conflitos
+- Georef: escala implícita 1:30.000 exata
+- P-77: grade interpolada = **1980.3 m** vs anotação do mapa **1980 m**
+- 125/157 rótulos de isóbata lidos; propagação fecha o resto (6 trechos
+  curtos ficam sem rótulo, comprimentos [42,116,327,63,383,38])
+- 5 poços extraídos (P-74, P-7, P-77 com coordenada; os dois poços-alvo do
+  título ficam para preencher via `/wells/override`)
 
-## Poços-alvo
+## Poços sem coordenada (poços-alvo do título)
 
-`data/wells_manual.json` tem placeholders para 9-BUZ-43-RJS e 8-BUZ-92-RJS —
-preencher E/N (SIRGAS2000 UTM 23S, EPSG:31983) e rodar `--stage 8` de novo.
-`POST /analyze` também aceita `{x, y}` direto sem poço cadastrado.
+Não é mais preenchido editando `data/wells_manual.json` e reprocessando —
+isso ficaria acoplado ao pipeline pesado por nada, já que coordenada de poço
+não depende de OCR/geometria. Em vez disso, a API leve guarda um arquivo à
+parte (`data/wells_overrides.json`, na API de **produção**, não no droplet
+pesado) que é mesclado por cima de `wells.json` em tempo de leitura:
+
+- `GET /wells/incomplete` — lista poços sem `E`/`N` (id, nome, nota) — é o
+  que alimenta o painel "Poços sem coordenada" no front
+- `POST /wells/override` *(protegido por `X-Internal-Key`)* — `{id, name?,
+  lon, lat, lda?}` (ou `x`/`y` em UTM) — grava/atualiza sem reprocessar nada;
+  `EscapeAnalyzer` já reflete a mudança na resposta seguinte
+- `POST /analyze` também aceita `{x, y}` ou `{lon, lat}` direto, sem poço
+  cadastrado, pra quem não quer nem cadastrar o poço
 
 ## API
 
-- `GET /wells` — poços com coordenadas (UTM + WGS84)
+- `GET /wells` — poços com coordenadas (UTM + WGS84), já com overrides
+  aplicados
+- `GET /wells/incomplete` — poços sem coordenada (ver seção acima)
+- `POST /wells/override` *(protegido)* — grava coordenada/LDA de um poço
 - `GET /map/layers` — isóbatas + obstáculos em GeoJSON WGS84
 - `POST /analyze` — `{well_id | x,y, radius_m, margin_m, obstacle_buffer_m,
   include_projeto}` → zonas GeoJSON (WGS84 + anel UTM em propriedade),
   setores de azimute livres, clearance por grau, avisos obrigatórios
+- `POST /reload` *(protegido)* — recarrega tudo de `data/` sem reiniciar o
+  processo; chamado automaticamente pelo droplet pesado após publicar um
+  mapa novo
+
+Rotas marcadas *(protegido)* exigem o header `X-Internal-Key` com o valor de
+`ROTAFUGA_PROCESS_KEY` — a própria API não tem conceito de usuário/sessão;
+quem decide *quem* pode chegar a essas rotas é o `server.js` (`requireAuth` +
+`requireAdmin`), que é o único lugar que deveria conhecer essa chave.
+
+## API de jobs (`jobs_api.py`, só no droplet pesado)
+
+Não roda no droplet de produção — só existe onde o preprocess de fato roda.
+Toda protegida por `X-Internal-Key`; a porta (8001) hoje não tem firewall
+restringindo por IP (ver "Pendências de hardening" abaixo).
+
+- `POST /jobs` — multipart, campo `file` (PDF) → `{job_id}`; recusa (409) se
+  já houver um job rodando (só um processamento por vez, a máquina é de
+  1 vCPU)
+- `GET /jobs/{id}` — `{status: running|done|error, error, log_tail,
+  started_at, finished_at}`
+
+## Pendências de hardening
+
+- Porta 8001 (`jobs_api.py`) aberta pra qualquer origem, só protegida pela
+  chave — o ideal é `ufw allow from <ip-produção> to any port 8001` (não fiz
+  ainda: ativar `ufw` num droplet sem console configurado tem risco real de
+  travar o próprio SSH se a regra de porta 22 não entrar antes)
+- `main.py` mantém `CORS allow_origins=['*']` — aceitável porque as rotas de
+  escrita já exigem a chave interna, mas vale revisar se o escopo crescer
 
 ### Modelo de zonas
 

@@ -38,6 +38,9 @@ DEFAULT_BUFFERS_M = {
 
 class EscapeAnalyzer:
     def __init__(self):
+        self._load()
+
+    def _load(self):
         grid = np.load(os.path.join(DATA, 'depth_grid.npz'))
         self.Z = grid['depth']
         self.e0 = float(grid['e0'])
@@ -47,8 +50,46 @@ class EscapeAnalyzer:
             self.obstacles = json.load(f)['features']
         with open(os.path.join(DATA, 'wells.json')) as f:
             self.wells = json.load(f)
+        self._apply_well_overrides()
         self.to_wgs84 = Transformer.from_crs('EPSG:31983', 'EPSG:4326',
                                              always_xy=True)
+
+    def reload(self):
+        """Recarrega tudo do disco — chamado depois que um mapa novo (ou uma
+        correção de poço) foi copiado para data/."""
+        self._load()
+
+    # ── overrides de poço (preenchidos manualmente, sem reprocessar o PDF) ──
+    def _overrides_path(self) -> str:
+        return os.path.join(DATA, 'wells_overrides.json')
+
+    def _load_overrides(self) -> dict:
+        path = self._overrides_path()
+        if not os.path.exists(path):
+            return {}
+        with open(path) as f:
+            return json.load(f)
+
+    def _apply_well_overrides(self):
+        overrides = self._load_overrides()
+        by_id = {w['id']: w for w in self.wells}
+        for well_id, patch in overrides.items():
+            if well_id in by_id:
+                by_id[well_id].update(patch)
+            else:
+                new_well = {'id': well_id, 'name': patch.get('name', well_id)}
+                new_well.update(patch)
+                self.wells.append(new_well)
+
+    def set_well_override(self, well_id: str, patch: dict):
+        """Grava/atualiza E, N e/ou lda de um poço à mão (ex.: poço-alvo sem
+        anotação OCR no mapa) sem precisar rodar o preprocess de novo."""
+        clean = {k: v for k, v in patch.items() if v is not None}
+        overrides = self._load_overrides()
+        overrides.setdefault(well_id, {}).update(clean)
+        with open(self._overrides_path(), 'w') as f:
+            json.dump(overrides, f, indent=2, ensure_ascii=False)
+        self._apply_well_overrides()
 
     # ── helpers ─────────────────────────────────────────────────────────────
     def depth_at(self, e: float, n: float) -> float | None:

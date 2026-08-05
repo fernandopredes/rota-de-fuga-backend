@@ -25,7 +25,7 @@ import fitz
 import numpy as np
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-PDF_PATH = os.environ.get('MAP_PDF', '/home/fernando/Taka-Storm/BUZ43_BUZ92_00.pdf')
+PDF_PATH = os.environ.get('MAP_PDF', '/home/fernando/Taka-Storm/BUZ70D_BUZ43_00.pdf')
 DATA = os.path.join(BASE, 'data')
 DEBUG = os.path.join(BASE, 'debug')
 TESSDATA = os.path.join(BASE, 'tessdata')
