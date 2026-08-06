@@ -565,6 +565,15 @@ def stage3a_samples():
 # estimate the text angle by PCA of the outline points, render a tight blue-
 # masked crop, and OCR at candidate angles with strict validation.
 
+def _isobath_pixel_mask(r, g, b):
+    """Pixels próximos de ISOBATH_COLOR (glifos de rótulo são preenchidos
+    nessa cor) — era um limiar fixo calibrado só pro azul original; agora
+    deriva da cor configurada pra esse mapa."""
+    tr, tg, tb = (round(c * 255) for c in ISOBATH_COLOR)
+    dist2 = (r - tr) ** 2 + (g - tg) ** 2 + (b - tb) ** 2
+    return dist2 < 80 ** 2
+
+
 def stage3b_contour_labels():
     from PIL import Image
     import tesserocr
@@ -626,7 +635,7 @@ def stage3b_contour_labels():
         r = img[:, :, 0].astype(int)
         g = img[:, :, 1].astype(int)
         b = img[:, :, 2].astype(int)
-        mask = (b > 130) & (r < 100) & (g > 70) & (g < 170)
+        mask = _isobath_pixel_mask(r, g, b)
         pil = Image.fromarray(np.where(mask, 0, 255).astype(np.uint8))
         angles = [theta, theta + 180, theta - 12, theta + 12, theta + 168, theta + 192]
         angles += list(range(0, 360, 15))
