@@ -24,7 +24,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 UPLOADS = os.path.join(BASE, 'uploads')
@@ -48,6 +48,7 @@ class Job:
     id: str
     pdf_path: str
     log_path: str
+    isobath_color: Optional[str] = None  # '#RRGGBB' — None usa o padrão calibrado
     status: str = 'running'     # running | done | error
     error: Optional[str] = None
     started_at: float = field(default_factory=time.time)
@@ -82,6 +83,10 @@ def _push_to_production():
 def _run_job(job: Job):
     env = os.environ.copy()
     env['MAP_PDF'] = job.pdf_path
+    if job.isobath_color:
+        env['ISOBATH_COLOR'] = job.isobath_color
+    else:
+        env.pop('ISOBATH_COLOR', None)
     with open(job.log_path, 'w') as logf:
         proc = subprocess.Popen(
             [sys.executable, 'preprocess.py', '--stage', 'all'],
@@ -102,7 +107,8 @@ def _run_job(job: Job):
 
 
 @app.post('/jobs', dependencies=[Depends(require_internal_key)])
-async def create_job(file: UploadFile = File(...)):
+async def create_job(file: UploadFile = File(...),
+                      isobath_color: Optional[str] = Form(default=None)):
     if not (file.filename or '').lower().endswith('.pdf'):
         raise HTTPException(422, 'esperado um arquivo .pdf')
 
@@ -112,7 +118,8 @@ async def create_job(file: UploadFile = File(...)):
         job_id = uuid.uuid4().hex[:12]
         pdf_path = os.path.join(UPLOADS, f'{job_id}.pdf')
         job = Job(id=job_id, pdf_path=pdf_path,
-                  log_path=os.path.join(UPLOADS, f'{job_id}.log'))
+                  log_path=os.path.join(UPLOADS, f'{job_id}.log'),
+                  isobath_color=isobath_color or None)
         JOBS[job_id] = job
 
     with open(pdf_path, 'wb') as f:

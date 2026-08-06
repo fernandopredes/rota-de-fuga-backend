@@ -273,7 +273,25 @@ def stage1_georef():
 
 # ── stage 2: isobath extraction ─────────────────────────────────────────────
 
-ISOBATH_COLOR = (0.12, 0.47, 0.71)
+def _parse_color(spec: str) -> tuple[float, float, float]:
+    """Aceita '#RRGGBB' ou 'r,g,b' (0-1) — mesmo formato que o PyMuPDF usa
+    internamente pros stroke colors."""
+    spec = spec.strip().lstrip('#')
+    if ',' in spec:
+        r, g, b = (float(x) for x in spec.split(','))
+    elif len(spec) == 6:
+        r, g, b = (int(spec[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    else:
+        raise ValueError(f"cor inválida: {spec!r} (use '#RRGGBB' ou 'r,g,b' 0-1)")
+    return (round(r, 2), round(g, 2), round(b, 2))
+
+
+# Cor das isóbatas — calibrada por mapa. Cada template QGIS/Petrobras pode
+# usar uma cor diferente; em vez de travar num valor fixo, o admin informa a
+# cor (opcional, hex) no upload — ISOBATH_COLOR env var, setada pelo
+# jobs_api.py. Sem isso, cai no azul do primeiro mapa calibrado.
+ISOBATH_COLOR = (_parse_color(os.environ['ISOBATH_COLOR'])
+                  if os.environ.get('ISOBATH_COLOR') else (0.12, 0.47, 0.71))
 # Map frame (the 'None'-colored border lines found during inspection); blue
 # strokes outside it are legend swatches / cropped-away QGIS leftovers.
 FRAME = (16.8, 11.3, 1980.4, 1672.4)
