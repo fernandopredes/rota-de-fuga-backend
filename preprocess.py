@@ -869,9 +869,22 @@ def stage4_grid():
     print(f'red-sample residuals: n={len(errs)} mean={errs.mean():+.1f} '
           f'median={np.median(errs):+.1f} p95(|e|)={np.percentile(abs(errs), 95):.1f} m')
 
-    p77 = read_depth(761977, 7272834)
-    print(f'P-77 check: grid={p77:.1f} m, map annotation=1980 m, '
-          f'delta={p77 - 1980:+.1f} m')
+    # Poço de referência pra validar a grade — configurável por mapa
+    # (REF_WELL_E/N/LDA), com o P-77 do primeiro mapa calibrado como padrão.
+    # Se o poço cair fora da grade desse mapa (área diferente), não trava —
+    # os resíduos das amostras vermelhas acima já servem de validação.
+    ref_e = float(os.environ.get('REF_WELL_E', 761977))
+    ref_n = float(os.environ.get('REF_WELL_N', 7272834))
+    ref_lda_env = os.environ.get('REF_WELL_LDA', '1980')
+    ref_depth = read_depth(ref_e, ref_n)
+    if ref_depth is None:
+        print(f'poço de referência (E={ref_e:.0f}, N={ref_n:.0f}) fora da grade '
+              f'desse mapa — checagem pulada (use os resíduos das amostras '
+              f'vermelhas acima, ou informe REF_WELL_E/N/LDA de um poço deste mapa)')
+    else:
+        ref_lda = float(ref_lda_env)
+        print(f'poço de referência check: grid={ref_depth:.1f} m, '
+              f'anotação={ref_lda:.0f} m, delta={ref_depth - ref_lda:+.1f} m')
 
     # debug hillshade-ish image
     import matplotlib
